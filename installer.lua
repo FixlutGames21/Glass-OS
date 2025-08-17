@@ -9,8 +9,8 @@ local computer = require("computer")
 local io = require("io")
 
 -- Налаштування репозиторію (ЗМІНІТЬ ЦІ ЗНАЧЕННЯ НА СВОЇ!)
-local GITHUB_USER = "ВАШ_НІКНЕЙМ_НА_GITHUB" -- Наприклад: "MyCoolDev"
-local GITHUB_REPO = "GlassOS"             -- Назва вашого репозиторію на GitHub (та, яку ви вказали вище)
+local GITHUB_USER = "FixlutGames21" -- Наприклад: "MyCoolDev"
+local GITHUB_REPO = "Glass-OS"             -- Назва вашого репозиторію на GitHub (та, яку ви вказали вище)
 local GITHUB_BRANCH = "main"              -- Зазвичай "main" або "master"
 
 local BASE_URL = "https://raw.githubusercontent.com/" .. GITHUB_USER .. "/" .. GITHUB_REPO .. "/" .. GITHUB_BRANCH .. "/"
