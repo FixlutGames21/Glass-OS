@@ -4,7 +4,7 @@
 local component = require("component")
 local event = require("event")
 local os = require("os")
-local computer = require("computer")
+local computer = require("computer") -- Переконайтесь, що computer завантажено
 
 -- Завантажуємо наші бібліотеки
 local colors = require("lib.colors")
@@ -136,6 +136,7 @@ local function drawStartMenu()
     end
 end
 
+-- Головна функція перемалювання всього інтерфейсу
 local function redrawGUI()
     drawDesktop()
 
@@ -155,19 +156,25 @@ local testWindow = Window.new(10, 5, 40, 15, "Моє перше вікно Glass
 table.insert(activeWindows, testWindow)
 testWindow.isActive = true
 
-redrawGUI()
+redrawGUI() -- Первинне малювання після завантаження ОС
 
 local running = true
-local updateInterval = 0.5
-local timerId = computer.startTimer(updateInterval)
+-- --- Зміни тут: Видаляємо автоматичний таймер оновлення екрана ---
+-- local updateInterval = 0.5
+-- local timerId = computer.startTimer(updateInterval)
+---------------------------------------------------------------------
 
 while running do
     local _, _, name, p1, p2, p3, p4 = event.pull()
 
-    if name == "timer" and p1 == timerId then
-        redrawGUI()
-        timerId = computer.startTimer(updateInterval)
-    elseif name == "mouse_click" then
+    -- --- Зміни тут: Видаляємо обробку події timer ---
+    -- if name == "timer" and p1 == timerId then
+    --     redrawGUI()
+    --     timerId = computer.startTimer(updateInterval)
+    --
+    -- else
+    -----------------------------------------------------
+    if name == "mouse_click" then
         local mouseX, mouseY = p2, p3
         local button = p4
         local clickHandledByGUI = false
@@ -177,7 +184,7 @@ while running do
             if utils.isClicked(mouseX, mouseY, win.x, win.y, win.width, win.height) then
                 for _, otherWin in ipairs(activeWindows) do
                     otherWin.isActive = false
-                end
+                Fend
                 win.isActive = true
                 if win:handleMouseClick(mouseX, mouseY, button) then
                     clickHandledByGUI = true
@@ -217,7 +224,7 @@ while running do
             clickHandledByGUI = true
         end
         
-        redrawGUI()
+        redrawGUI() -- Перемальовуємо після кліку мишею
 
     elseif name == "mouse_drag" then
         local mouseX, mouseY = p2, p3
@@ -232,7 +239,7 @@ while running do
             end
         end
         if dragHandledByGUI then
-            redrawGUI()
+            redrawGUI() -- Перемальовуємо під час перетягування
         end
 
     elseif name == "mouse_up" then
@@ -253,7 +260,7 @@ while running do
             end
         end
         activeWindows = newActiveWindows
-        redrawGUI()
+        redrawGUI() -- Перемальовуємо після відпускання миші (особливо після перетягування)
 
     elseif name == "key_down" then
         local char_code = p2
@@ -261,6 +268,8 @@ while running do
         if char == "q" or char == "Q" then
             running = false
         end
+        -- TODO: Передавати події клавіатури активному вікну, якщо є
+        redrawGUI() -- Перемальовуємо після натискання клавіші (якщо це змінює інтерфейс)
     end
 end
 

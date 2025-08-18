@@ -8,23 +8,22 @@ local shell = require("shell")
 local computer = require("computer")
 local io = require("io")
 
--- Налаштування репозиторію (ЗМІНІТЬ ЦІ ЗНАЧЕННЯ НА СВОЇ!)
-local GITHUB_USER = "FixlutGames21" -- Наприклад: "MyCoolDev"
-local GITHUB_REPO = "Glass-OS"             -- Назва вашого репозиторію на GitHub (та, яку ви вказали вище)
-local GITHUB_BRANCH = "main"              -- Зазвичай "main" або "master"
+-- Налаштування репозиторію (ЗМІНЕНІ НА ВАШІ ДАНІ)
+local GITHUB_USER = "FixlutGames21" -- <-- Ваш GitHub username
+local GITHUB_REPO = "Glass-OS"     -- <-- Назва вашого репозиторію на GitHub
+local GITHUB_BRANCH = "main"        -- Зазвичай "main" або "master"
 
 local BASE_URL = "https://raw.githubusercontent.com/" .. GITHUB_USER .. "/" .. GITHUB_REPO .. "/" .. GITHUB_BRANCH .. "/"
 local TARGET_DIR = "/home/glassos" -- Директорія, куди буде встановлено Glass OS на комп'ютері OpenComputers
 
--- Список файлів, які потрібно завантажити (додавайте сюди всі нові файли та папки!)
+-- Список файлів, які потрібно завантажити (додайте сюди всі нові файли та папки!)
 local FILES_TO_DOWNLOAD = {
     "main.lua",
     "lib/colors.lua",
     "lib/drawing.lua",
     "lib/utils.lua",
     "gui_elements/window.lua",
-    -- Якщо ви створите apps/terminal.lua, додайте його сюди:
-    -- "apps/terminal.lua",
+    "installer.lua", -- Важливо: інсталятор також завантажує себе для оновлень!
 }
 
 -- Допоміжна функція для завантаження файлів
@@ -38,7 +37,7 @@ local function downloadFile(url, path)
     end)
 
     if not success or not data then
-        error("Не вдалося завантажити " .. url .. ". Можливо, немає доступу до інтернету або файл не існує.")
+        error("Не вдалося завантажити " .. url .. ". Можливо, немає доступу до інтернету або файл не існує: " .. tostring(data))
     end
 
     local fileHandle, errorMsg = io.open(path, "w")
@@ -68,6 +67,12 @@ local function installGlassOS()
     
     -- Завантажуємо всі файли зі списку
     for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
+        -- Перевірка на nil або порожній шлях
+        if not fileRelativePath or fileRelativePath == "" then
+            print("Попередження: Пропущено порожній шлях до файлу в FILES_TO_DOWNLOAD.")
+            goto continue -- Переходимо до наступної ітерації
+        end
+
         local fullUrl = BASE_URL .. fileRelativePath
         local localPath = fileRelativePath
 
@@ -75,12 +80,25 @@ local function installGlassOS()
         local dirName = filesystem.directory(localPath)
         if dirName ~= "" and not filesystem.exists(dirName) then
             print("Створюю піддиректорію: " .. dirName)
-            if not filesystem.makeDirectory(dirName) then
-                error("Не вдалося створити піддиректорію: " .. dirName)
+            -- Пробуємо рекурсивно створити директорії
+            local success, err = pcall(filesystem.makeDirectory, dirName)
+            if not success then
+                -- Якщо пряме створення не вдалося, спробуйте створити батьківські директорії покроково
+                local currentDir = ""
+                for segment in string.gmatch(dirName, "[^/]+") do
+                    currentDir = currentDir .. segment .. "/"
+                    if not filesystem.exists(currentDir) then
+                        local created, createErr = filesystem.makeDirectory(currentDir)
+                        if not created then
+                            error("Не вдалося створити піддиректорію " .. currentDir .. ": " .. createErr)
+                        end
+                    end
+                end
             end
         end
 
         downloadFile(fullUrl, localPath)
+        ::continue:: -- Мітка для goto
     end
 
     -- Створюємо простий скрипт для запуску Glass OS
@@ -105,7 +123,7 @@ local function installGlassOS()
     shell.execute("chmod +x " .. runScriptPath) -- Робимо скрипт виконуваним
     print("Скрипт запуску створено: " .. runScriptPath)
 
-    filesystem.changeDirectory(oldPath) -- Повертаємося до початкової директорії
+    filesystem.changeDirectory(oldPath)
 
     print("\nВстановлення Glass OS завершено!")
     print("Для запуску ОС виконайте: \z" .. runScriptPath .. "\z")
