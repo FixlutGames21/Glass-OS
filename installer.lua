@@ -1,6 +1,5 @@
 -- installer.lua
 -- Інсталятор для Glass OS в OpenComputers
--- Цей файл буде розміщено на GitHub разом з іншими файлами Glass OS
 
 local component = require("component")
 local filesystem = require("filesystem")
@@ -8,9 +7,9 @@ local shell = require("shell")
 local computer = require("computer")
 local io = require("io")
 
--- Налаштування репозиторію (ЗМІНЕНІ НА ВАШІ ДАНІ)
+-- Налаштування репозиторію (ЗМІНІТЬ ЦІ ЗНАЧЕННЯ НА СВОЇ!)
 local GITHUB_USER = "FixlutGames21" -- <-- Ваш GitHub username
-local GITHUB_REPO = "Glass-OS"     -- <-- Назва вашого репозиторію на GitHub
+local GITHUB_REPO = "Glass-OS"     -- <-- Назва вашого репозиторію на GitHub (та, яку ви вказали вище)
 local GITHUB_BRANCH = "main"        -- Зазвичай "main" або "master"
 
 local BASE_URL = "https://raw.githubusercontent.com/" .. GITHUB_USER .. "/" .. GITHUB_REPO .. "/" .. GITHUB_BRANCH .. "/"
@@ -67,11 +66,13 @@ local function installGlassOS()
     
     -- Завантажуємо всі файли зі списку
     for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
+        -- **ПОЧАТОК ВИПРАВЛЕНЬ**
         -- Перевірка на nil або порожній шлях
         if not fileRelativePath or fileRelativePath == "" then
             print("Попередження: Пропущено порожній шлях до файлу в FILES_TO_DOWNLOAD.")
             goto continue -- Переходимо до наступної ітерації
         end
+        -- **КІНЕЦЬ ВИПРАВЛЕНЬ**
 
         local fullUrl = BASE_URL .. fileRelativePath
         local localPath = fileRelativePath
