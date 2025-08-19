@@ -1,169 +1,157 @@
--- bios.lua
--- Скрипт, що запускається з дискети після прошивки BIOS.
--- Відповідає за форматування HDD та встановлення Glass OS.
+-- installer.lua
+-- Інсталятор для Glass OS в OpenComputers (з підтримкою дискети та прошивки BIOS)
 
 local component = require("component")
 local filesystem = require("filesystem")
 local shell = require("shell")
 local computer = require("computer")
-local event = require("event")
-local io = require("io")
+local io = require("io") -- Ensure io is loaded
 
--- Налаштування (мають співпадати з installer.lua)
-local FLOPPY_LABEL = "GlassOS_Install"
-local TARGET_HDD_DIR = "/glassos" -- Директорія на HDD
+-- Налаштування репозиторію
+local GITHUB_USER = "FixlutGames21" -- Ваш GitHub username
+local GITHUB_REPO = "Glass-OS"     -- Назва вашого репозиторію на GitHub
+local GITHUB_BRANCH = "main"        -- Зазвичай "main" або "master"
 
-local function clearScreen()
-    local gpu = component.gpu
-    if gpu then
-        local maxWidth, maxHeight = gpu.maxResolution()
-        gpu.setResolution(maxWidth, maxHeight)
-        gpu.setBackground(0x000000) -- Чорний фон
-        gpu.setForeground(0xFFFFFF) -- Білий текст
-        gpu.fill(1, 1, maxWidth, maxHeight, " ")
+local BASE_URL = "https://raw.githubusercontent.com/" .. GITHUB_USER .. "/" .. GITHUB_REPO .. "/" .. GITHUB_BRANCH .. "/"
+local FLOPPY_LABEL = "GlassOS_Install" -- Мітка для дискети. Важливо, щоб дискета була вставлена!
+
+-- Список файлів, які потрібно завантажити (додаємо bios.lua)
+local FILES_TO_DOWNLOAD = {
+    "main.lua",
+    "lib/colors.lua",
+    "lib/drawing.lua",
+    "lib/utils.lua",
+    "gui_elements/window.lua",
+    "installer.lua",
+    "bios.lua", -- Новий файл BIOS!
+}
+
+-- Допоміжна функція для завантаження файлів
+local function downloadFile(url, path)
+    print("Завантажую: " .. url)
+    local success, data = pcall(function()
+        local handle = shell.open(url)
+        local content = handle:readAll()
+        handle:close()
+        return content
+    end)
+
+    if not success or not data then
+        error("Не вдалося завантажити " .. url .. ". Можливо, немає доступу до інтернету або файл не існує: " .. tostring(data))
     end
+
+    local fileHandle, errorMsg = io.open(path, "w")
+    if not fileHandle then
+        error("Не вдалося створити файл " .. path .. ": " .. errorMsg)
+    end
+    fileHandle:write(data)
+    fileHandle:close()
+    print("Збережено: " .. path)
 end
 
-local function printMessage(msg)
-    clearScreen()
-    io.stdout:write(msg .. "\n")
-    io.stdout:flush()
-end
-
-local function waitForKey()
-    io.stdout:write("\nНатисніть будь-яку клавішу для продовження...\n")
-    io.stdout:flush()
-    event.pull("key_down")
-end
-
-local function installFromFloppy()
-    printMessage("Починаю встановлення Glass OS з дискети...")
+-- Основна логіка встановлення
+local function installGlassOS()
+    print("Починаю встановлення Glass OS...")
 
     -- 1. Знаходимо дискету
     local floppy = component.get(component.list("filesystem", true)())
-    if not floppy or floppy.getLabel() ~= FLOPPY_LABEL then
-        printMessage("Помилка: Не знайдено дискету з інсталятором ('" .. FLOPPY_LABEL .. "'). Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        shell.execute("reboot")
+    if not floppy then
+        error("Помилка: Не знайдено дискету. Будь ласка, вставте чисту дискету в комп'ютер.")
     end
-    local floppyPath = floppy.path() .. "/" .. FLOPPY_LABEL
+    print("Знайдено дискету: " .. floppy.getLabel())
 
-    -- 2. Знаходимо основний жорсткий диск
-    local hdd = nil
-    for address in component.list("filesystem") do
-        local fs = component.get(address)
-        if fs.isFormatted and not fs.isReadOnly and fs.uuid() ~= floppy.uuid() then -- Шукаємо форматований HDD, який не є дискетою
-            hdd = fs
-            break
+    -- 2. Створюємо директорію на дискеті (або використовуємо корінь)
+    local targetFloppyDir = floppy.path() .. "/" .. FLOPPY_LABEL
+    if not filesystem.exists(targetFloppyDir, floppy.address) then
+        print("Створюю директорію на дискеті: " .. targetFloppyDir)
+        if not filesystem.makeDirectory(targetFloppyDir, floppy.address) then
+            error("Не вдалося створити директорію на дискеті: " .. targetFloppyDir)
         end
     end
+    
+    -- 3. Завантажуємо всі файли на дискету
+    local oldPath = filesystem.path()
+    -- !!! Changed to use floppy.address for changing directory to the floppy
+    filesystem.changeDirectory(targetFloppyDir, floppy.address) 
+    
+    for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
+        -- Перевірка на nil або порожній шлях
+        if not fileRelativePath or fileRelativePath == "" then
+            print("Попередження: Пропущено порожній шлях до файлу в FILES_TO_DOWNLOAD.")
+            goto continue
+        end
 
-    if not hdd then
-        printMessage("Помилка: Не знайдено жорсткий диск для встановлення Glass OS. Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        shell.execute("reboot")
-    end
-    local hddPath = hdd.path()
+        local fullUrl = BASE_URL .. fileRelativePath
+        local localPath = fileRelativePath
 
-    printMessage("Знайдено дискету: '" .. floppy.getLabel() .. "' та жорсткий диск: " .. hdd.getLabel() .. "...")
-    waitForKey()
-
-    -- 3. Форматуємо жорсткий диск
-    printMessage("Форматую жорсткий диск '" .. hdd.getLabel() .. "'...")
-    local success, err = pcall(hdd.format)
-    if not success then
-        printMessage("Помилка форматування диска: " .. tostring(err) .. ". Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        shell.execute("reboot")
-    end
-    printMessage("Форматування завершено. Жорсткий диск очищено.")
-    waitForKey()
-
-    -- 4. Копіюємо файли з дискети на жорсткий диск
-    printMessage("Копіюю файли Glass OS з дискети на жорсткий диск...")
-    local successCopy, errCopy = pcall(function()
-        local function copyRecursive(srcPath, destPath)
-            local entries = filesystem.list(srcPath, floppy.address)
-            for name, isDir in pairs(entries) do
-                local currentSrc = filesystem.concat(srcPath, name)
-                local currentDest = filesystem.concat(destPath, name)
-
-                if isDir then
-                    if not filesystem.exists(currentDest, hdd.address) then
-                        filesystem.makeDirectory(currentDest, hdd.address)
+        -- Перевіряємо та створюємо всі необхідні піддиректорії на дискеті
+        local dirName = filesystem.directory(localPath)
+        if dirName ~= "" and not filesystem.exists(dirName, floppy.address) then
+            print("Створюю піддиректорію на дискеті: " .. dirName)
+            local currentDir = ""
+            for segment in string.gmatch(dirName, "[^/]+") do
+                currentDir = currentDir .. segment .. "/"
+                if not filesystem.exists(currentDir, floppy.address) then
+                    local created, createErr = filesystem.makeDirectory(currentDir, floppy.address)
+                    if not created then
+                        error("Не вдалося створити піддиректорію на дискеті " .. currentDir .. ": " .. createErr)
                     end
-                    copyRecursive(currentSrc, currentDest)
-                else
-                    local content = filesystem.read(currentSrc, floppy.address)
-                    filesystem.write(currentDest, hdd.address, content)
                 end
             end
         end
-        
-        filesystem.makeDirectory(TARGET_HDD_DIR, hdd.address) -- Створюємо основну директорію на HDD
-        copyRecursive(floppyPath, TARGET_HDD_DIR)
-    end)
 
-    if not successCopy then
-        printMessage("Помилка копіювання файлів: " .. tostring(errCopy) .. ". Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        shell.execute("reboot")
+        downloadFile(fullUrl, localPath)
+        ::continue::
     end
-    printMessage("Копіювання файлів завершено.")
-    waitForKey()
 
-    -- 5. Перепрошиваємо BIOS для завантаження з HDD
-    printMessage("Перепрошиваю BIOS для завантаження Glass OS з жорсткого диска...")
+    filesystem.changeDirectory(oldPath) -- Повертаємося до попередньої директорії
+
+    print("\nВсі файли Glass OS завантажено на дискету.")
+    print("Тепер прошиваю BIOS комп'ютера для завантаження з дискети...")
+
+    -- 4. Прошиваємо BIOS
     local eeprom = component.eeprom
     if not eeprom then
-        printMessage("Помилка: EEPROM (BIOS) не знайдено. Неможливо змінити завантаження.")
-        computer.beep()
-        os.sleep(5)
-        shell.execute("reboot")
+        error("Помилка: EEPROM (BIOS) не знайдено.")
     end
 
-    local bootScriptHDD = [[
+    -- Створюємо скрипт для завантаження з дискети та запуску bios.lua
+    local bootScript = [[
         local component = require("component")
-        local shell = require("shell")
         local filesystem = require("filesystem")
+        local shell = require("shell")
+        local io = require("io") -- Ensure io is loaded
 
-        -- Знаходимо жорсткий диск з встановленою ОС
-        local hddFs = nil
-        for address in component.list("filesystem") do
-            local fs = component.get(address)
-            if fs.isFormatted and not fs.isReadOnly and filesystem.exists("]] .. TARGET_HDD_DIR .. [[/main.lua", fs.address) then
-                hddFs = fs
-                break
-            end
+        local floppy = component.get(component.list("filesystem", true)())
+        if not floppy then
+            io.write("Помилка: Дискета не знайдена. Будь ласка, вставте дискету з інсталятором Glass OS.\n") -- Use io.write
+            io.flush() -- Explicit flush
+            shell.execute("reboot")
         end
 
-        if not hddFs then
-            io.stderr:write("Помилка: Жорсткий диск з Glass OS не знайдено. Перезавантаження в OpenOS.\n")
-            shell.execute("reboot") -- Перезавантажуємо, можливо, повернемося до OpenOS
-        else
-            io.stderr:write("Завантажую Glass OS з жорсткого диска...\n")
-            shell.execute("lua " .. hddFs.path() .. "]] .. TARGET_HDD_DIR .. [[/main.lua")
+        local biosPath = floppy.path() .. "/]] .. FLOPPY_LABEL .. [[/bios.lua"
+        if not filesystem.exists(biosPath, floppy.address) then
+            io.write("Помилка: Файл 'bios.lua' не знайдено на дискеті за шляхом: " .. biosPath .. "\n") -- Use io.write
+            io.flush() -- Explicit flush
+            shell.execute("reboot")
         end
+
+        io.write("Запускаю інсталятор Glass OS з дискети...\n") -- Use io.write
+        io.flush() -- Explicit flush
+        shell.execute("lua " .. biosPath)
+        io.write("Після завершення інсталяції, будь ласка, перезавантажте комп'ютер.\n") -- Use io.write
+        io.flush() -- Explicit flush
     ]]
 
-    eeprom.set(bootScriptHDD)
-    printMessage("BIOS успішно прошито! Glass OS встановлено на жорсткий диск.")
-    printMessage("Будь ласка, вийміть дискету та перезавантажте комп'ютер.")
-    computer.beep()
-    os.sleep(5)
-    printMessage("Встановлення завершено!")
-    os.exit() -- Завершуємо роботу bios.lua
+    eeprom.set(bootScript)
+    print("BIOS успішно прошито! Комп'ютер тепер завантажуватиметься з дискети.")
+    print("Після перезавантаження, дискета буде форматувати жорсткий диск та встановлювати ОС.")
+    print("\n[ВСТАНОВЛЕННЯ ЗАВЕРШЕНО]: Будь ласка, перезавантажте комп'ютер (команда 'reboot').")
 end
 
--- Запуск інсталяції з дискети
-local success, errorMessage = pcall(installFromFloppy)
+-- Запуск інсталятора (з обробкою помилок)
+local success, errorMessage = pcall(installGlassOS)
 if not success then
-    printMessage("\n[ПОМИЛКА ВСТАНОВЛЕННЯ З ДИСКЕТИ]: " .. tostring(errorMessage))
+    print("\n[ПОМИЛКА ВСТАНОВЛЕННЯ]: " .. tostring(errorMessage))
     computer.beep()
-    os.sleep(5)
-    shell.execute("reboot")
 end

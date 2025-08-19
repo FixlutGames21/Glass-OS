@@ -159,7 +159,7 @@ testWindow.isActive = true
 redrawGUI() -- Первинне малювання після завантаження ОС
 
 local running = true
--- --- Зміни тут: Видаляємо автоматичний таймер оновлення екрана ---
+-- --- Видаляємо автоматичний таймер оновлення екрана ---
 -- local updateInterval = 0.5
 -- local timerId = computer.startTimer(updateInterval)
 ---------------------------------------------------------------------
@@ -167,7 +167,7 @@ local running = true
 while running do
     local _, _, name, p1, p2, p3, p4 = event.pull()
 
-    -- --- Зміни тут: Видаляємо обробку події timer ---
+    -- --- Видаляємо обробку події timer ---
     -- if name == "timer" and p1 == timerId then
     --     redrawGUI()
     --     timerId = computer.startTimer(updateInterval)
@@ -184,7 +184,7 @@ while running do
             if utils.isClicked(mouseX, mouseY, win.x, win.y, win.width, win.height) then
                 for _, otherWin in ipairs(activeWindows) do
                     otherWin.isActive = false
-                Fend
+                end
                 win.isActive = true
                 if win:handleMouseClick(mouseX, mouseY, button) then
                     clickHandledByGUI = true
