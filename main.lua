@@ -67,7 +67,34 @@ local startMenuConfig = {
 -- Менеджер вікон та програм (спрощено)
 --------------------------------------------------------------------------------
 local activeWindows = {}
-local zOrder = {}
+-- Z-порядок - це просто порядок у таблиці activeWindows
+-- Вікно наприкінці таблиці малюється останнім і є найвищим (активним)
+
+local function bringWindowToFront(windowToBring)
+    local newOrder = {}
+    local found = false
+    for i, win in ipairs(activeWindows) do
+        if win ~= windowToBring then
+            table.insert(newOrder, win)
+        else
+            found = true
+        end
+    end
+    if found then
+        table.insert(newOrder, windowToBring)
+        activeWindows = newOrder
+    end
+end
+
+local function setActiveWindow(windowToActivate)
+    for _, win in ipairs(activeWindows) do
+        win.isActive = false
+    end
+    if windowToActivate then
+        windowToActivate.isActive = true
+        bringWindowToFront(windowToActivate)
+    end
+end
 
 local function runApp(appName)
     print("Запит на запуск програми: " .. tostring(appName))
@@ -75,6 +102,14 @@ local function runApp(appName)
         return true
     elseif appName == "terminal" then
         print("Запускаємо Термінал (поки що заглушка).")
+        local newTerminalWindow = Window.new(math.random(5, maxWidth - 45), math.random(5, maxHeight - 15), 40, 10, "Термінал")
+        table.insert(activeWindows, newTerminalWindow)
+        setActiveWindow(newTerminalWindow)
+    elseif appName == "my_computer" then
+        print("Запускаємо Мій комп'ютер (поки що заглушка).")
+        local newMyComputerWindow = Window.new(math.random(5, maxWidth - 45), math.random(5, maxHeight - 15), 40, 15, "Мій комп'ютер")
+        table.insert(activeWindows, newMyComputerWindow)
+        setActiveWindow(newMyComputerWindow)
     else
         print("Програма '" .. tostring(appName) .. "' ще не реалізована.")
     end
@@ -140,6 +175,7 @@ end
 local function redrawGUI()
     drawDesktop()
 
+    -- Малюємо вікна, починаючи з найстаріших (що на дні)
     for i, win in ipairs(activeWindows) do
         win:draw()
     end
@@ -152,15 +188,14 @@ end
 -- Основний цикл ОС 🖥️
 --------------------------------------------------------------------------------
 
-local testWindow = Window.new(10, 5, 40, 15, "Моє перше вікно Glass OS")
+-- Створення початкового вікна (можна видалити після тестування)
+local testWindow = Window.new(10, 5, 40, 15, "Моє тестове вікно")
 table.insert(activeWindows, testWindow)
-testWindow.isActive = true
+setActiveWindow(testWindow)
 
 redrawGUI() -- Первинне малювання після завантаження ОС
 
 local running = true
--- !!! Видалено автоматичний таймер оновлення екрана !!!
--- Оновлення тепер відбувається лише за подіями миші/клавіатури
 
 while running do
     local _, _, name, p1, p2, p3, p4 = event.pull()
@@ -170,20 +205,16 @@ while running do
         local button = p4
         local clickHandledByGUI = false
 
-        -- Перевіряємо вікна
-        for i = #activeWindows, 1, -1 do -- Проходимо у зворотньому порядку, щоб спочатку обробляти верхні вікна
+        -- Прохід по вікнах у ЗВОРОТНЬОМУ порядку (від найвищого до найнижчого)
+        for i = #activeWindows, 1, -1 do
             local win = activeWindows[i]
-            if win.isVisible then
+            if win.isVisible and not win.isMinimized then
                 if utils.isClicked(mouseX, mouseY, win.x, win.y, win.width, win.height) then
-                    -- Зробити це вікно активним
-                    for _, otherWin in ipairs(activeWindows) do
-                        otherWin.isActive = false
-                    end
-                    win.isActive = true
-                    -- І перевіряємо, чи вікно обробило клік (наприклад, по кнопці закриття)
+                    -- Якщо клікнули по вікну, робимо його активним та обробляємо клік
+                    setActiveWindow(win)
                     if win:handleMouseClick(mouseX, mouseY, button) then
                         clickHandledByGUI = true
-                        break
+                        break -- Клік оброблено, більше не перевіряємо
                     end
                 end
             end
@@ -232,13 +263,11 @@ while running do
     elseif name == "mouse_drag" then
         local mouseX, mouseY = p2, p3
         local dragHandledByGUI = false
-        for i = #activeWindows, 1, -1 do
-            local win = activeWindows[i]
-            if win.isDragging then
-                if win:handleMouseMove(mouseX, mouseY) then
-                    dragHandledByGUI = true
-                    break
-                end
+        -- Перевіряємо тільки активне вікно на перетягування
+        if #activeWindows > 0 and activeWindows[#activeWindows].isDragging then
+            local win = activeWindows[#activeWindows] -- Беремо активне вікно (останнє в z-порядку)
+            if win:handleMouseMove(mouseX, mouseY) then
+                dragHandledByGUI = true
             end
         end
         if dragHandledByGUI then
@@ -248,14 +277,15 @@ while running do
     elseif name == "mouse_up" then
         local mouseX, mouseY = p2, p3
         local button = p4
-        local clickHandledByGUI = false -- Назва змінної не зовсім коректна для mouse_up, але залишимо для послідовності
-        for i = #activeWindows, 1, -1 do
-            local win = activeWindows[i]
+        local clickHandledByGUI = false
+        -- Перевіряємо тільки активне вікно на завершення перетягування
+        if #activeWindows > 0 and activeWindows[#activeWindows].isDragging then
+            local win = activeWindows[#activeWindows]
             if win:handleMouseUp(mouseX, mouseY, button) then
-                clickHandledByGUI = true -- Означає, що подія "mouse_up" була оброблена вікном (наприклад, завершення перетягування)
-                break
+                clickHandledByGUI = true
             end
         end
+
         -- Очистити список вікон від тих, що були закриті
         local newActiveWindows = {}
         for _, win in ipairs(activeWindows) do
@@ -264,6 +294,7 @@ while running do
             end
         end
         activeWindows = newActiveWindows
+        
         redrawGUI() -- Перемальовуємо після відпускання миші (особливо після перетягування)
 
     elseif name == "key_down" then

@@ -63,11 +63,20 @@ function M.drawWindow(x, y, width, height, title, isActive)
     gpu.setBackground(title_bg_color)
     gpu.setForeground(title_text_color)
     gpu.fill(x + 1, y, width - 2, 1, " ")
-    gpu.set(x + 2, y, title:sub(1, width - 6))
+    
+    -- Рисуємо заголовок вікна, обрізаючи його, щоб залишити місце для кнопок керування
+    local titleMaxLen = width - 2 - 3 - 3 -- Ширина - рамки - кнопка закрити - кнопка мінімізувати
+    if titleMaxLen < 0 then titleMaxLen = 0 end -- Негативна довжина не має сенсу
+    gpu.set(x + 2, y, title:sub(1, titleMaxLen))
 
-    local closeBtnX = x + width - 4
-    local closeBtnY = y
-    M.draw3dButton(closeBtnX, closeBtnY, 3, 1, " X ", false)
+    -- Кнопки керування вікном
+    local btnX = x + width - 4
+    M.draw3dButton(btnX, y, 3, 1, " X ", false) -- Закрити
+    btnX = btnX - 3
+    M.draw3dButton(btnX, y, 3, 1, " ^ ", false) -- Максимізувати (заглушка)
+    btnX = btnX - 3
+    M.draw3dButton(btnX, y, 3, 1, " _ ", false) -- Мінімізувати (заглушка)
+
 
     gpu.setBackground(content_bg_color)
     gpu.fill(x + 1, y + 1, width - 2, height - 2, " ")
