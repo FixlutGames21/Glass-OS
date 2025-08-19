@@ -7,7 +7,7 @@ local filesystem = require("filesystem")
 local shell = require("shell")
 local computer = require("computer")
 local event = require("event")
-local io = require("io") -- Ensure io is loaded
+local io = require("io") -- Забезпечуємо завантаження io
 
 -- Налаштування (мають співпадати з installer.lua)
 local FLOPPY_LABEL = "GlassOS_Install"
@@ -26,11 +26,11 @@ end
 
 local function printMessage(msg)
     clearScreen()
-    print(msg) -- Use print() instead of io.stdout:write()
+    print(msg) -- Використовуємо print() замість io.stdout:write()
 end
 
 local function waitForKey()
-    print("\nНатисніть будь-яку клавішу для продовження...\n") -- Use print()
+    print("\nНатисніть будь-яку клавішу для продовження...\n") -- Використовуємо print()
     event.pull("key_down")
 end
 
@@ -65,11 +65,11 @@ local function installFromFloppy()
     end
     local hddPath = hdd.path()
 
-    printMessage("Знайдено дискету: '" .. floppy.getLabel() .. "' та жорсткий диск: " .. (hdd.getLabel() or "Невідома мітка") .. "...") -- Added or "Невідома мітка"
+    printMessage("Знайдено дискету: '" .. (floppy.getLabel() or "Без мітки") .. "' та жорсткий диск: " .. (hdd.getLabel() or "Без мітки") .. "...") -- Додано обробку nil для getLabel
     waitForKey()
 
     -- 3. Форматуємо жорсткий диск
-    printMessage("Форматую жорсткий диск '" .. (hdd.getLabel() or "Невідома мітка") .. "'...")
+    printMessage("Форматую жорсткий диск '" .. (hdd.getLabel() or "Без мітки") .. "'...")
     local success, err = pcall(hdd.format)
     if not success then
         printMessage("Помилка форматування диска: " .. tostring(err) .. ". Перезавантаження.")
@@ -128,7 +128,7 @@ local function installFromFloppy()
         local component = require("component")
         local shell = require("shell")
         local filesystem = require("filesystem")
-        local io = require("io") -- Ensure io is loaded
+        local io = require("io") -- Забезпечуємо завантаження io
 
         -- Знаходимо жорсткий диск з встановленою ОС
         local hddFs = nil
@@ -141,12 +141,12 @@ local function installFromFloppy()
         end
 
         if not hddFs then
-            io.write("Помилка: Жорсткий диск з Glass OS не знайдено. Перезавантаження в OpenOS.\n") -- Use io.write
-            io.flush() -- Explicit flush
+            io.write("Помилка: Жорсткий диск з Glass OS не знайдено. Перезавантаження в OpenOS.\n") -- Використовуємо io.write
+            io.flush() -- Явний flush
             shell.execute("reboot") -- Перезавантажуємо, можливо, повернемося до OpenOS
         else
-            io.write("Завантажую Glass OS з жорсткого диска...\n") -- Use io.write
-            io.flush() -- Explicit flush
+            io.write("Завантажую Glass OS з жорсткого диска...\n") -- Використовуємо io.write
+            io.flush() -- Явний flush
             shell.execute("lua " .. hddFs.path() .. "]] .. TARGET_HDD_DIR .. [[/main.lua")
         end
     ]]

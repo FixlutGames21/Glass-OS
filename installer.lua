@@ -5,10 +5,10 @@ local component = require("component")
 local filesystem = require("filesystem")
 local shell = require("shell")
 local computer = require("computer")
-local io = require("io") -- Ensure io is loaded
+local io = require("io") -- Забезпечуємо завантаження io
 
 -- Налаштування репозиторію
-local GITHUB_USER = "FixlutGames21" -- Ваш GitHub username
+local GITHUB_USER = "FixlutGames21" -- Ваш GitHub username (збережено з профілю)
 local GITHUB_REPO = "Glass-OS"     -- Назва вашого репозиторію на GitHub
 local GITHUB_BRANCH = "main"        -- Зазвичай "main" або "master"
 
@@ -58,7 +58,7 @@ local function installGlassOS()
     if not floppy then
         error("Помилка: Не знайдено дискету. Будь ласка, вставте чисту дискету в комп'ютер.")
     end
-    print("Знайдено дискету: " .. floppy.getLabel())
+    print("Знайдено дискету: " .. (floppy.getLabel() or "Без мітки")) -- Додано перевірку на nil для getLabel
 
     -- 2. Створюємо директорію на дискеті (або використовуємо корінь)
     local targetFloppyDir = floppy.path() .. "/" .. FLOPPY_LABEL
@@ -71,7 +71,7 @@ local function installGlassOS()
     
     -- 3. Завантажуємо всі файли на дискету
     local oldPath = filesystem.path()
-    -- !!! Changed to use floppy.address for changing directory to the floppy
+    -- !!! Виправлено: використано floppy.address для зміни директорії на дискету
     filesystem.changeDirectory(targetFloppyDir, floppy.address) 
     
     for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
@@ -120,27 +120,27 @@ local function installGlassOS()
         local component = require("component")
         local filesystem = require("filesystem")
         local shell = require("shell")
-        local io = require("io") -- Ensure io is loaded
+        local io = require("io") -- Забезпечуємо завантаження io
 
         local floppy = component.get(component.list("filesystem", true)())
         if not floppy then
-            io.write("Помилка: Дискета не знайдена. Будь ласка, вставте дискету з інсталятором Glass OS.\n") -- Use io.write
-            io.flush() -- Explicit flush
+            io.write("Помилка: Дискета не знайдена. Будь ласка, вставте дискету з інсталятором Glass OS.\n") -- Використовуємо io.write
+            io.flush() -- Явний flush
             shell.execute("reboot")
         end
 
         local biosPath = floppy.path() .. "/]] .. FLOPPY_LABEL .. [[/bios.lua"
         if not filesystem.exists(biosPath, floppy.address) then
-            io.write("Помилка: Файл 'bios.lua' не знайдено на дискеті за шляхом: " .. biosPath .. "\n") -- Use io.write
-            io.flush() -- Explicit flush
+            io.write("Помилка: Файл 'bios.lua' не знайдено на дискеті за шляхом: " .. biosPath .. "\n") -- Використовуємо io.write
+            io.flush() -- Явний flush
             shell.execute("reboot")
         end
 
-        io.write("Запускаю інсталятор Glass OS з дискети...\n") -- Use io.write
-        io.flush() -- Explicit flush
+        io.write("Запускаю інсталятор Glass OS з дискети...\n") -- Використовуємо io.write
+        io.flush() -- Явний flush
         shell.execute("lua " .. biosPath)
-        io.write("Після завершення інсталяції, будь ласка, перезавантажте комп'ютер.\n") -- Use io.write
-        io.flush() -- Explicit flush
+        io.write("Після завершення інсталяції, будь ласка, перезавантажте комп'ютер.\n") -- Використовуємо io.write
+        io.flush() -- Явний flush
     ]]
 
     eeprom.set(bootScript)

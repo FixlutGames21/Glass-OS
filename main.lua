@@ -159,72 +159,75 @@ testWindow.isActive = true
 redrawGUI() -- Первинне малювання після завантаження ОС
 
 local running = true
--- --- Видаляємо автоматичний таймер оновлення екрана ---
--- local updateInterval = 0.5
--- local timerId = computer.startTimer(updateInterval)
----------------------------------------------------------------------
+-- !!! Видалено автоматичний таймер оновлення екрана !!!
+-- Оновлення тепер відбувається лише за подіями миші/клавіатури
 
 while running do
     local _, _, name, p1, p2, p3, p4 = event.pull()
 
-    -- --- Видаляємо обробку події timer ---
-    -- if name == "timer" and p1 == timerId then
-    --     redrawGUI()
-    --     timerId = computer.startTimer(updateInterval)
-    --
-    -- else
-    -----------------------------------------------------
     if name == "mouse_click" then
         local mouseX, mouseY = p2, p3
         local button = p4
         local clickHandledByGUI = false
 
-        for i = #activeWindows, 1, -1 do
+        -- Перевіряємо вікна
+        for i = #activeWindows, 1, -1 do -- Проходимо у зворотньому порядку, щоб спочатку обробляти верхні вікна
             local win = activeWindows[i]
-            if utils.isClicked(mouseX, mouseY, win.x, win.y, win.width, win.height) then
-                for _, otherWin in ipairs(activeWindows) do
-                    otherWin.isActive = false
-                end
-                win.isActive = true
-                if win:handleMouseClick(mouseX, mouseY, button) then
-                    clickHandledByGUI = true
-                    break
-                end
-            end
-        end
-
-        if not clickHandledByGUI and startMenuConfig.isVisible then
-            if utils.isClicked(mouseX, mouseY, startMenuConfig.x, startMenuConfig.y, startMenuConfig.width, startMenuConfig.height) then
-                local relativeY = mouseY - startMenuConfig.y
-                local itemIndex = relativeY + 1
-                local selectedItem = startMenuConfig.items[itemIndex]
-                
-                if selectedItem and selectedItem.text ~= "---" then
-                    gpu.setBackground(colors.HIGHLIGHT)
-                    gpu.setForeground(colors.WHITE)
-                    gpu.fill(startMenuConfig.x + 1, startMenuConfig.y + itemIndex -1, startMenuConfig.width - 2, 1, " ")
-                    gpu.set(startMenuConfig.x + 2, startMenuConfig.y + itemIndex -1, selectedItem.text)
-                    os.sleep(0.1)
-
-                    local shouldShutdown = runApp(selectedItem.action)
-                    if shouldShutdown then
-                        running = false
+            if win.isVisible then
+                if utils.isClicked(mouseX, mouseY, win.x, win.y, win.width, win.height) then
+                    -- Зробити це вікно активним
+                    for _, otherWin in ipairs(activeWindows) do
+                        otherWin.isActive = false
+                    end
+                    win.isActive = true
+                    -- І перевіряємо, чи вікно обробило клік (наприклад, по кнопці закриття)
+                    if win:handleMouseClick(mouseX, mouseY, button) then
+                        clickHandledByGUI = true
+                        break
                     end
                 end
-                startMenuConfig.isVisible = false
-                clickHandledByGUI = true
-            else
-                startMenuConfig.isVisible = false
-                clickHandledByGUI = true
             end
         end
 
+        -- Якщо клік не оброблено вікном, перевіряємо меню "Пуск"
+        if not clickHandledByGUI then
+            if startMenuConfig.isVisible then
+                if utils.isClicked(mouseX, mouseY, startMenuConfig.x, startMenuConfig.y, startMenuConfig.width, startMenuConfig.height) then
+                    local relativeY = mouseY - startMenuConfig.y
+                    local itemIndex = relativeY + 1
+                    local selectedItem = startMenuConfig.items[itemIndex]
+                    
+                    if selectedItem and selectedItem.text ~= "---" then
+                        -- Ефект виділення при натисканні
+                        gpu.setBackground(colors.HIGHLIGHT)
+                        gpu.setForeground(colors.WHITE)
+                        gpu.fill(startMenuConfig.x + 1, startMenuConfig.y + itemIndex -1, startMenuConfig.width - 2, 1, " ")
+                        gpu.set(startMenuConfig.x + 2, startMenuConfig.y + itemIndex -1, selectedItem.text)
+                        os.sleep(0.1) -- Коротка пауза для візуального ефекту
+
+                        local shouldShutdown = runApp(selectedItem.action)
+                        if shouldShutdown then
+                            running = false
+                        end
+                    end
+                    startMenuConfig.isVisible = false
+                    clickHandledByGUI = true
+                else
+                    -- Клік поза меню "Пуск" закриває його
+                    startMenuConfig.isVisible = false
+                    clickHandledByGUI = true
+                end
+            end
+        end
+
+        -- Обробка кнопки "Пуск" (якщо клік не оброблено раніше)
         if not clickHandledByGUI and utils.isClicked(mouseX, mouseY, startButtonConfig.x, startButtonConfig.y, startButtonConfig.width, startButtonConfig.height) then
             startMenuConfig.isVisible = not startMenuConfig.isVisible
             clickHandledByGUI = true
         end
         
-        redrawGUI() -- Перемальовуємо після кліку мишею
+        -- Перемальовуємо GUI після обробки кліку
+        redrawGUI()
 
     elseif name == "mouse_drag" then
         local mouseX, mouseY = p2, p3
@@ -239,20 +242,21 @@ while running do
             end
         end
         if dragHandledByGUI then
-            redrawGUI() -- Перемальовуємо під час перетягування
+            redrawGUI() -- Перемальовуємо під час перетягування вікна
         end
 
     elseif name == "mouse_up" then
         local mouseX, mouseY = p2, p3
         local button = p4
-        local clickHandledByGUI = false
+        local clickHandledByGUI = false -- Назва змінної не зовсім коректна для mouse_up, але залишимо для послідовності
         for i = #activeWindows, 1, -1 do
             local win = activeWindows[i]
             if win:handleMouseUp(mouseX, mouseY, button) then
-                clickHandledByGUI = true
+                clickHandledByGUI = true -- Означає, що подія "mouse_up" була оброблена вікном (наприклад, завершення перетягування)
                 break
             end
         end
+        -- Очистити список вікон від тих, що були закриті
         local newActiveWindows = {}
         for _, win in ipairs(activeWindows) do
             if win.isVisible then
@@ -265,11 +269,11 @@ while running do
     elseif name == "key_down" then
         local char_code = p2
         local char = string.char(char_code)
-        if char == "q" or char == "Q" then
+        if char == "q" or char == "Q" then -- Для швидкого виходу
             running = false
         end
         -- TODO: Передавати події клавіатури активному вікну, якщо є
-        redrawGUI() -- Перемальовуємо після натискання клавіші (якщо це змінює інтерфейс)
+        redrawGUI() -- Перемальовуємо після натискання клавіші, якщо це може вплинути на інтерфейс
     end
 end
 
