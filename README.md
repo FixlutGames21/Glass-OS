@@ -11,7 +11,7 @@ Glass OS
 ⚠️ Glass OS ще не працює!
 Проект знаходиться на ранній стадії розробки. Файли є, але система потребує доопрацювання для повної роботи.
 
-для завантаження: wget https://raw.githubusercontent.com/FixlutGames21/Glass-OS/main/installer.lua
+для завантаження: 'wget https://raw.githubusercontent.com/FixlutGames21/Glass-OS/main/installer.lua'
 
 Функціонал (планований)
 
