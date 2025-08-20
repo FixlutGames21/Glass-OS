@@ -297,5 +297,6 @@ local success, errorMessage = pcall(installGlassOS)
 if not success then
     printMessage("\n[ПОМИЛКА ВСТАНОВЛЕННЯ]: " .. tostring(errorMessage))
     computer.beep()
-    computer.shutdown()
+	os.sleep(5)
+    computer.reboot()
 end
