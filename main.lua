@@ -16,16 +16,25 @@ local Window = require("gui_elements.window")
 local gpu = component.gpu
 if not gpu then
     print("Помилка: GPU не знайдено. Переконайтеся, що відеокарта встановлена.")
+    computer.pushSignal("power_off") -- Відправляємо сигнал вимкнення
     os.exit()
 end
 local screenAddress = component.list("screen")()
 if not screenAddress then
     print("Помилка: Екран не знайдено. Переконайтеся, що екран підключений.")
+    computer.pushSignal("power_off") -- Відправляємо сигнал вимкнення
     os.exit()
 end
 
-local maxWidth, maxHeight = gpu.maxResolution()
-gpu.setResolution(maxWidth, maxHeight)
+-- Встановлення роздільної здатності. Спроба обробки помилок.
+local success, errMsg = pcall(gpu.setResolution, gpu, gpu.maxResolution())
+if not success then
+    print("Помилка встановлення роздільної здатності GPU: " .. tostring(errMsg))
+    print("Спроба встановити стандартну роздільну здатність.")
+    pcall(gpu.setResolution, gpu, 80, 25) -- Спроба стандартної роздільної здатності
+end
+
+local maxWidth, maxHeight = gpu.getResolution() -- Отримуємо фактичну встановлену роздільну здатність
 print("Роздільна здатність встановлена:", maxWidth, "x", maxHeight)
 
 drawing.init(maxWidth, maxHeight)
@@ -64,7 +73,7 @@ local startMenuConfig = {
 }
 
 --------------------------------------------------------------------------------
--- Менеджер вікон та програм (спрощено)
+-- Менеджер вікон та програм
 --------------------------------------------------------------------------------
 local activeWindows = {}
 -- Z-порядок - це просто порядок у таблиці activeWindows
@@ -316,3 +325,4 @@ gpu.setForeground(colors.WHITE)
 gpu.set(1, 1, "До побачення! Glass OS вимикається.")
 os.sleep(1.5)
 gpu.fill(1, 1, maxWidth, maxHeight, " ")
+computer.pushSignal("power_off") -- Відправляємо сигнал вимкнення при завершенні

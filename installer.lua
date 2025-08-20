@@ -26,22 +26,22 @@ local FILES_TO_DOWNLOAD = {
     "installer.lua", -- Включаємо сам інсталятор для оновлення
 }
 
--- Допоміжна функція для очищення екрану та виводу повідомлення
-local function clearScreen()
+-- Допоміжна функція для безпечного очищення екрану та виводу повідомлення
+local function printMessage(msg)
     local gpu = component.gpu
     if gpu then
-        local maxWidth, maxHeight = gpu.maxResolution()
-        gpu.setResolution(maxWidth, maxHeight)
-        gpu.setBackground(0x000000) -- Чорний фон
-        gpu.setForeground(0xFFFFFF) -- Білий текст
-        gpu.fill(1, 1, maxWidth, maxHeight, " ")
+        local success, errMsg = pcall(gpu.setResolution, gpu, gpu.maxResolution())
+        if not success then
+             -- Якщо не вдалося встановити роздільну здатність, спробувати щось простіше
+             pcall(gpu.setResolution, gpu, 80, 25)
+        end
+        local maxWidth, maxHeight = gpu.getResolution()
+        pcall(gpu.setBackground, gpu, 0x000000) -- Чорний фон
+        pcall(gpu.setForeground, gpu, 0xFFFFFF) -- Білий текст
+        pcall(gpu.fill, gpu, 1, 1, maxWidth, maxHeight, " ")
     end
-end
-
-local function printMessage(msg)
-    clearScreen()
     print(msg)
-}
+end
 
 local function waitForKey()
     print("\nНатисніть будь-яку клавішу для продовження...")
@@ -53,6 +53,7 @@ local function downloadFile(url, path)
     print("Завантажую: " .. url)
     local success, data = pcall(function()
         local handle = shell.open(url)
+        if not handle then error("Не вдалося відкрити URL.") end
         local content = handle:readAll()
         handle:close()
         return content
@@ -78,35 +79,55 @@ local function installGlassOS()
 
     -- 1. Знаходимо основний жорсткий диск (ретельна перевірка)
     local hdd = nil
+    local hddAddress = nil
     for address in component.list("filesystem") do
         local fs = component.get(address)
         -- Перевіряємо, що це форматований, не тільки для читання, і є достатньо місця
         -- Також перевіряємо, що це не tmpfs або інші віртуальні файлові системи
-        if fs.isFormatted and not fs.isReadOnly and fs.spaceUsed() ~= nil then -- spaceUsed() повертає nil для віртуальних
-             hdd = fs
-             break
+        if fs.isFormatted and not fs.isReadOnly and fs.spaceUsed and fs.spaceUsed() ~= nil then
+             -- Перевіряємо, що це не коренева файлова система OpenOS (якщо вже завантажено OpenOS)
+             local currentPath = filesystem.path(address) -- Отримуємо шлях компонента
+             if currentPath and currentPath == "/" then
+                -- Це, ймовірно, поточний завантажувальний диск OpenOS. Не форматуємо його.
+                -- Шукаємо інший, або просимо користувача вказати.
+             else
+                hdd = fs
+                hddAddress = address
+                break
+             end
         end
     end
 
     if not hdd then
-        printMessage("Помилка: Не знайдено жорсткий диск для встановлення Glass OS. Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        os.exit()
-    end
-    local hddPath = hdd.path()
-    if not hddPath then
-        printMessage("Помилка: Не вдалося отримати кореневий шлях жорсткого диска. Перезавантаження.")
-        computer.beep()
-        os.sleep(5)
-        os.exit()
+        -- Якщо не знайшли підходящий HDD, пропонуємо перший знайдений, якщо такий є.
+        for address in component.list("filesystem") do
+            local fs = component.get(address)
+            if fs.isFormatted and not fs.isReadOnly then -- Спрощена перевірка, якщо попередня не спрацювала
+                hdd = fs
+                hddAddress = address
+                break
+            end
+        end
+        if not hdd then
+            printMessage("Помилка: Не знайдено жодного жорсткого диска для встановлення Glass OS. Перезавантаження.")
+            computer.beep()
+            os.sleep(5)
+            computer.shutdown() -- Вимкнення замість os.exit() для надійності
+        end
     end
 
-    printMessage("Знайдено жорсткий диск: " .. (hdd.getLabel() or "Без мітки") .. "...")
+    local hddLabel = ""
+    if hdd.getLabel then -- Перевірка наявності getLabel
+        hddLabel = hdd.getLabel() or "Без мітки"
+    else
+        hddLabel = "Невідомий (без getLabel)"
+    end
+    
+    printMessage("Знайдено жорсткий диск: " .. hddLabel .. " (" .. hddAddress .. ")...")
     waitForKey()
 
     -- 2. Запитуємо користувача про форматування HDD
-    printMessage("УВАГА: Встановлення Glass OS потребує форматування жорсткого диска '" .. (hdd.getLabel() or "Без мітки") .. "'.\n" ..
+    printMessage("УВАГА: Встановлення Glass OS потребує форматування жорсткого диска '" .. hddLabel .. "'.\n" ..
                  "УСІ ДАНІ НА ЖОРСТКОМУ ДИСКУ БУДУТЬ ВИДАЛЕНІ!\n\n" ..
                  "Ви впевнені, що хочете продовжити? (yes/no)")
     local input = io.read()
@@ -114,16 +135,16 @@ local function installGlassOS()
         printMessage("Встановлення скасовано користувачем.")
         computer.beep()
         os.sleep(2)
-        os.exit()
+        computer.shutdown()
     end
 
-    printMessage("Форматую жорсткий диск '" .. (hdd.getLabel() or "Без мітки") .. "'...")
+    printMessage("Форматую жорсткий диск '" .. hddLabel .. "'...")
     local success, err = pcall(hdd.format)
     if not success then
         printMessage("Помилка форматування диска: " .. tostring(err) .. ". Перезавантаження.")
         computer.beep()
         os.sleep(5)
-        os.exit()
+        computer.shutdown()
     end
     printMessage("Форматування завершено. Жорсткий диск очищено.")
     waitForKey()
@@ -131,41 +152,25 @@ local function installGlassOS()
     -- 3. Копіюємо файли на жорсткий диск
     printMessage("Копіюю файли Glass OS на жорсткий диск...")
     local oldPath = filesystem.path() -- Зберігаємо поточний шлях
-
+    
     local successCopy, errCopy = pcall(function()
         -- Створюємо основну директорію для Glass OS на HDD
-        if not filesystem.exists(TARGET_HDD_DIR, hdd.address) then
-            local created, createErr = filesystem.makeDirectory(TARGET_HDD_DIR, hdd.address)
+        -- Важливо: використовуємо filesystem.makeDirectory з адресою компонента,
+        -- щоб уникнути проблем, якщо поточною директорією є щось інше.
+        if not filesystem.exists(TARGET_HDD_DIR, hddAddress) then
+            local created, createErr = filesystem.makeDirectory(TARGET_HDD_DIR, hddAddress)
             if not created then
                 error("Не вдалося створити директорію '" .. TARGET_HDD_DIR .. "' на HDD: " .. createErr)
             end
         end
-        filesystem.changeDirectory(TARGET_HDD_DIR, hdd.address) -- Змінюємо поточну директорію на HDD
-
-        local function copyRecursive(srcComponent, srcPath, destComponent, destPath)
-            local entries = filesystem.list(srcPath, srcComponent.address)
-            for name, isDir in pairs(entries) do
-                local currentSrc = filesystem.concat(srcPath, name)
-                local currentDest = filesystem.concat(destPath, name)
-
-                if isDir then
-                    if not filesystem.exists(currentDest, destComponent.address) then
-                        local created, createErr = filesystem.makeDirectory(currentDest, destComponent.address)
-                        if not created then
-                            error("Не вдалося створити директорію '" .. currentDest .. "' на HDD: " .. createErr)
-                        end
-                    end
-                    copyRecursive(srcComponent, currentSrc, destComponent, currentDest)
-                else
-                    -- Завантажуємо файли з GitHub безпосередньо в потрібну директорію на HDD
-                    local fullUrl = BASE_URL .. string.gsub(currentSrc, hddPath .. TARGET_HDD_DIR .. "/", "") -- Отримуємо відносний шлях для URL
-                    local relativeLocalPath = filesystem.relativePath(currentSrc, filesystem.concat(hddPath, TARGET_HDD_DIR))
-                    downloadFile(fullUrl, relativeLocalPath)
-                end
-            end
+        -- Змінюємо поточну робочу директорію для сесії інсталятора на цільову директорію на HDD
+        -- Це дозволить завантажувати файли без повного шляху `/glassos/...`
+        local successCd, cdErr = filesystem.changeDirectory(TARGET_HDD_DIR, hddAddress)
+        if not successCd then
+            error("Не вдалося перейти в директорію '" .. TARGET_HDD_DIR .. "' на HDD: " .. cdErr)
         end
-        
-        -- Копіюємо всі файли з FILES_TO_DOWNLOAD до TARGET_HDD_DIR
+
+        -- Копіюємо всі файли з FILES_TO_DOWNLOAD
         for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
             local fullUrl = BASE_URL .. fileRelativePath
             local localPath = fileRelativePath -- Це відносний шлях у рамках TARGET_HDD_DIR
@@ -175,10 +180,11 @@ local function installGlassOS()
                 local currentDirSegment = ""
                 for segment in string.gmatch(dirName, "[^/\\]+") do -- Також враховуємо зворотні слеші
                     currentDirSegment = filesystem.concat(currentDirSegment, segment)
-                    if not filesystem.exists(currentDirSegment, hdd.address) then -- Перевіряємо існування в поточній директорії (що на HDD)
-                        local created, createErr = filesystem.makeDirectory(currentDirSegment, hdd.address)
+                    -- Перевіряємо існування та створюємо піддиректорії відносно поточної директорії (що зараз TARGET_HDD_DIR)
+                    if not filesystem.exists(currentDirSegment) then 
+                        local created, createErr = filesystem.makeDirectory(currentDirSegment)
                         if not created then
-                            error("Не вдалося створити піддиректорію '" .. currentDirSegment .. "' на HDD: " .. createErr)
+                            error("Не вдалося створити піддиректорію '" .. currentDirSegment .. "': " .. createErr)
                         end
                     end
                 end
@@ -188,13 +194,13 @@ local function installGlassOS()
 
     end)
 
-    filesystem.changeDirectory(oldPath) -- Повертаємося до попередньої директоре
+    filesystem.changeDirectory(oldPath) -- Повертаємося до попередньої директорії
 
     if not successCopy then
         printMessage("Помилка копіювання файлів: " .. tostring(errCopy) .. ". Перезавантаження.")
         computer.beep()
         os.sleep(5)
-        os.exit()
+        computer.shutdown()
     end
     printMessage("Копіювання файлів Glass OS завершено.")
     waitForKey()
@@ -204,7 +210,7 @@ local function installGlassOS()
     print("lua " .. TARGET_HDD_DIR .. "/main.lua")
     computer.beep()
     os.sleep(5)
-    os.exit()
+    computer.shutdown()
 end
 
 -- Запуск інсталятора (з обробкою помилок)
@@ -212,4 +218,5 @@ local success, errorMessage = pcall(installGlassOS)
 if not success then
     printMessage("\n[ПОМИЛКА ВСТАНОВЛЕННЯ]: " .. tostring(errorMessage))
     computer.beep()
+    computer.shutdown() -- Вимкнення, якщо інсталятор впав
 end

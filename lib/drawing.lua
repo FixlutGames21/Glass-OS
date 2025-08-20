@@ -65,7 +65,7 @@ function M.drawWindow(x, y, width, height, title, isActive)
     gpu.fill(x + 1, y, width - 2, 1, " ")
     
     -- Рисуємо заголовок вікна, обрізаючи його, щоб залишити місце для кнопок керування
-    local titleMaxLen = width - 2 - 3 - 3 -- Ширина - рамки - кнопка закрити - кнопка мінімізувати
+    local titleMaxLen = width - 2 - 3 - 3 - 3 -- Ширина - рамки - кнопка закрити - кнопка максимізувати - кнопка мінімізувати
     if titleMaxLen < 0 then titleMaxLen = 0 end -- Негативна довжина не має сенсу
     gpu.set(x + 2, y, title:sub(1, titleMaxLen))
 
