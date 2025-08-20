@@ -3,10 +3,10 @@
 
 local component = require("component")
 local computer = require("computer")
-local filesystem = require("filesystem") -- Змінено на 'filesystem' для уникнення конфлікту з локальною 'fs'
+local filesystem = require("filesystem")
 local shell = require("shell")
-local term = require("term") -- Для терміналу
-local event = require("event") -- Для waitForKey
+local term = require("term")
+local event = require("event")
 local io = require("io")
 local os = require("os")
 
@@ -16,7 +16,7 @@ local GITHUB_REPO = "Glass-OS"     -- Назва вашого репозитор
 local GITHUB_BRANCH = "main"        -- Зазвичай "main" або "master"
 
 local BASE_URL = "https://raw.githubusercontent.com/" .. GITHUB_USER .. "/" .. GITHUB_REPO .. "/" .. GITHUB_BRANCH .. "/"
-local TARGET_HDD_DIR = "/glassos" -- Директорія встановлення на HDD (змінено, щоб ставити в окрему папку)
+local TARGET_HDD_DIR = "/glassos" -- Директорія встановлення на HDD
 
 -- Допоміжна функція для безпечного очищення екрану та виводу повідомлення
 local function printMessage(msg)
@@ -27,7 +27,8 @@ local function printMessage(msg)
         if not successRes then
              pcall(gpu.setResolution, gpu, 80, 25) -- Стандартна роздільна здатність
         end
-        local maxWidth, maxHeight = gpu.getResolution()
+        local maxWidth, maxHeight = pcall(gpu.getResolution, gpu) -- Додати pcall і об'єкт gpu
+        if not maxWidth then maxWidth, maxHeight = 80, 25 end -- Запасний варіант
         pcall(gpu.setBackground, gpu, 0x000000) -- Чорний фон
         pcall(gpu.setForeground, gpu, 0xFFFFFF) -- Білий текст
         pcall(gpu.fill, gpu, 1, 1, maxWidth, maxHeight, " ")
@@ -43,25 +44,72 @@ local function waitForKey()
     event.pull("key_down")
 end
 
+-- Допоміжна функція для рекурсивного видалення директорії
+local function deleteDirectoryRecursive(path)
+    if not filesystem.exists(path) then return true end
+
+    -- Отримуємо список вмісту директорії
+    local list = {}
+    for entry in filesystem.list(path) do
+        table.insert(list, entry)
+    end
+
+    -- Видаляємо кожен елемент
+    for _, entry in ipairs(list) do
+        local fullPath = filesystem.concat(path, entry)
+        if filesystem.isDirectory(fullPath) then
+            local ok, err = deleteDirectoryRecursive(fullPath)
+            if not ok then return false, err end
+        else
+            local ok, err = pcall(filesystem.remove, filesystem, fullPath)
+            if not ok then return false, err end
+        end
+    end
+
+    -- Видаляємо саму директорію після видалення її вмісту
+    local ok, err = pcall(filesystem.remove, filesystem, path)
+    if not ok then return false, err end
+
+    return true
+end
+
+
 -- Допоміжна функція для рекурсивного створення батьківських директорій
-local function makeParentDirectory(filePath)
+local function makeParentDirectory(filePath, targetFsAddress)
     local dirName = filesystem.directory(filePath)
-    if dirName ~= "" and not filesystem.exists(dirName) then
-        local currentDirSegment = ""
-        for segment in string.gmatch(dirName, "[^/\\]+") do
-            currentDirSegment = filesystem.concat(currentDirSegment, segment)
-            if not filesystem.exists(currentDirSegment) then
-                local created, createErr = filesystem.makeDirectory(currentDirSegment)
-                if not created then
-                    error("Не вдалося створити директорію '" .. currentDirSegment .. "': " .. createErr)
+    if dirName == "" then return true end -- Це файл у кореневій директорії
+
+    -- Змінюємо контекст файлової системи, якщо вказана адреса
+    local originalFsAddress = filesystem.path() -- Зберігаємо поточний шлях
+    if targetFsAddress and targetFsAddress ~= originalFsAddress then
+        local success, err = filesystem.changeDirectory(targetFsAddress) -- Тимчасово змінюємо FS контекст
+        if not success then error("Не вдалося змінити FS контекст: " .. tostring(err)) end
+    end
+
+    local currentDirSegment = ""
+    for segment in string.gmatch(dirName, "[^/\\]+") do
+        currentDirSegment = filesystem.concat(currentDirSegment, segment)
+        if not filesystem.exists(currentDirSegment) then
+            local created, createErr = filesystem.makeDirectory(currentDirSegment)
+            if not created then
+                -- Повертаємо FS контекст перед викиданням помилки
+                if targetFsAddress and targetFsAddress ~= originalFsAddress then
+                    filesystem.changeDirectory(originalFsAddress)
                 end
+                error("Не вдалося створити директорію '" .. currentDirSegment .. "': " .. createErr)
             end
         end
     end
+
+    -- Повертаємо FS контекст
+    if targetFsAddress and targetFsAddress ~= originalFsAddress then
+        filesystem.changeDirectory(originalFsAddress)
+    end
+    return true
 end
 
 -- Допоміжна функція для завантаження файлів (використовуємо shell.open)
-local function downloadFile(url, path)
+local function downloadFile(url, path, targetFsAddress)
     print("Завантажую: " .. url)
     local success, data = pcall(function()
         local handle = shell.open(url)
@@ -76,14 +124,30 @@ local function downloadFile(url, path)
     end
 
     -- Створення батьківських директорій перед записом файлу
-    makeParentDirectory(path)
+    local ok, err = makeParentDirectory(path, targetFsAddress)
+    if not ok then error("Помилка створення директорій: " .. tostring(err)) end
 
+    -- Змінюємо контекст файлової системи для запису, якщо вказана адреса
+    local originalFsPath = filesystem.path()
+    if targetFsAddress then
+        local success, err = filesystem.changeDirectory(targetFsAddress)
+        if not success then error("Не вдалося змінити FS контекст для запису: " .. tostring(err)) end
+    end
+    
     local fileHandle, errorMsg = io.open(path, "w")
     if not fileHandle then
+        -- Повертаємо FS контекст перед викиданням помилки
+        if targetFsAddress then filesystem.changeDirectory(originalFsPath) end
         error("Не вдалося створити файл " .. path .. ": " .. errorMsg)
     end
     fileHandle:write(data)
     fileHandle:close()
+
+    -- Повертаємо FS контекст
+    if targetFsAddress then
+        filesystem.changeDirectory(originalFsPath)
+    end
+
     print("Збережено: " .. path)
 end
 
@@ -143,7 +207,7 @@ local function installGlassOS()
     waitForKey()
 
     -- 2. Запитуємо користувача про форматування HDD
-    printMessage("УВАГА: Встановлення Glass OS потребує форматування жорсткого диска '" .. hddLabel .. "'.\n" ..
+    printMessage("УВАГА: Встановлення Glass OS потребує очищення жорсткого диска '" .. hddLabel .. "'.\n" ..
                  "УСІ ДАНІ НА ЖОРСТКОМУ ДИСКУ БУДУТЬ ВИДАЛЕНІ!\n\n" ..
                  "Ви впевнені, що хочете продовжити? (yes/no)")
     local input = io.read()
@@ -154,36 +218,41 @@ local function installGlassOS()
         computer.shutdown()
     end
 
-    printMessage("Форматую жорсткий диск '" .. hddLabel .. "'...")
-    local successFormat, errFormat = pcall(hdd.format) -- Використовуємо метод format() самого HDD
-    if not successFormat then
-        printMessage("Помилка форматування диска: " .. tostring(errFormat) .. ". Можливо, диск захищений від запису або пошкоджений. Перезавантаження.")
+    printMessage("Очищую жорсткий диск '" .. hddLabel .. "'...")
+    -- Видаляємо всі файли та папки в корені диска
+    local oldPath = filesystem.path() -- Зберігаємо поточний шлях
+    local successCdRoot, errCdRoot = pcall(filesystem.changeDirectory, filesystem, "/", hddAddress)
+    if not successCdRoot then
+        printMessage("Помилка: Не вдалося перейти до кореня диска для очищення: " .. tostring(errCdRoot))
         computer.beep()
         os.sleep(5)
         computer.shutdown()
     end
-    printMessage("Форматування завершено. Жорсткий диск очищено.")
+
+    local successFormat, errFormat = deleteDirectoryRecursive("/") -- Видаляємо все рекурсивно
+    if not successFormat then
+        printMessage("Помилка очищення диска: " .. tostring(errFormat) .. ". Перезавантаження.")
+        -- Спроба повернутися до попередньої директорії або до кореня перед вимкненням
+        pcall(filesystem.changeDirectory, filesystem, oldPath)
+        computer.beep()
+        os.sleep(5)
+        computer.shutdown()
+    end
+    printMessage("Очищення завершено. Жорсткий диск готовий.")
+    
+    -- Повертаємося до попередньої директорії або до кореня
+    pcall(filesystem.changeDirectory, filesystem, oldPath)
+
     waitForKey()
 
-    -- Змінюємо поточну директорію на HDD для зручності
-    local oldPath = filesystem.path() -- Зберігаємо поточний шлях
-    local successCd, cdErr = pcall(filesystem.changeDirectory, filesystem, TARGET_HDD_DIR, hddAddress)
-    if not successCd then
-        -- Якщо TARGET_HDD_DIR ще не існує, спробувати створити його та перейти туди
-        local created, createErr = pcall(filesystem.makeDirectory, filesystem, TARGET_HDD_DIR, hddAddress)
-        if not created then
-            printMessage("Помилка: Не вдалося створити директорію встановлення: " .. tostring(createErr))
-            computer.beep()
-            os.sleep(5)
-            computer.shutdown()
-        end
-        successCd, cdErr = pcall(filesystem.changeDirectory, filesystem, TARGET_HDD_DIR, hddAddress)
-        if not successCd then
-            printMessage("Помилка: Не вдалося перейти в директорію встановлення: " .. tostring(cdErr))
-            computer.beep()
-            os.sleep(5)
-            computer.shutdown()
-        end
+    -- Створюємо основну директорію для Glass OS на HDD
+    printMessage("Створюю директорію встановлення: " .. TARGET_HDD_DIR)
+    local created, createErr = pcall(filesystem.makeDirectory, filesystem, TARGET_HDD_DIR, hddAddress)
+    if not created then
+        printMessage("Помилка: Не вдалося створити директорію встановлення: " .. tostring(createErr))
+        computer.beep()
+        os.sleep(5)
+        computer.shutdown()
     end
 
     -- Список файлів для завантаження (оновлений відповідно до Glass-OS)
@@ -192,29 +261,32 @@ local function installGlassOS()
         "system/core.lua",
         "system/gui.lua",
         "system/shell.lua",
-        "lib/colors.lua", -- З попередньої версії
-        "lib/drawing.lua", -- З попередньої версії
-        "lib/utils.lua",   -- З попередньої версії
-        "gui_elements/window.lua", -- З попередньої версії
+        "lib/colors.lua", 
+        "lib/drawing.lua",
+        "lib/utils.lua",   
+        "gui_elements/window.lua", 
         "installer.lua", -- Включаємо сам інсталятор для оновлення
     }
 
     printMessage("Копіюю файли Glass OS на жорсткий диск...")
     for _, fileRelativePath in ipairs(FILES_TO_DOWNLOAD) do
         local fullUrl = BASE_URL .. fileRelativePath
-        local localPath = fileRelativePath -- Це відносний шлях у рамках TARGET_HDD_DIR
-        downloadFile(fullUrl, localPath)
+        local localPath = filesystem.concat(TARGET_HDD_DIR, fileRelativePath) -- Повний шлях для запису
+        local successDownload, errorDownload = pcall(downloadFile, fullUrl, localPath, hddAddress)
+        if not successDownload then
+            printMessage("Помилка завантаження " .. fileRelativePath .. ": " .. tostring(errorDownload))
+            computer.beep()
+            os.sleep(5)
+            computer.shutdown()
+        end
     end
 
-    -- Намагаємося повернутися до попередньої директорії або до кореня
-    local successReturn, errReturn = pcall(filesystem.changeDirectory, filesystem, oldPath)
-    if not successReturn then
-        pcall(filesystem.changeDirectory, filesystem, "/")
-    end
+    printMessage("Копіювання файлів Glass OS завершено.")
+    waitForKey()
 
     printMessage("\n[ВСТАНОВЛЕННЯ ЗАВЕРШЕНО]: Glass OS успішно встановлено на жорсткий диск.")
-    print("Щоб запустити Glass OS, перезавантажте комп'ютер у OpenOS і виконайте команду:")
-    print("lua " .. TARGET_HDD_DIR .. "/boot.lua") -- Змінено на boot.lua
+    print("Щоб запустити Glass OS, перезавантажте комп'ютер і виконайте команду:")
+    print("lua " .. TARGET_HDD_DIR .. "/boot.lua")
     computer.beep()
     os.sleep(5)
     computer.shutdown()
